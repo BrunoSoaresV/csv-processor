@@ -4,6 +4,9 @@ WORKDIR /app
 
 COPY . .
 
-RUN ./build.sh
+# Instala GCC e make
+RUN apk add --no-cache gcc musl-dev make
+
+RUN sh build.sh
 
 CMD ["/app/test_libcsv"]
