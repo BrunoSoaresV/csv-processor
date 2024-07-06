@@ -86,28 +86,26 @@ int applyFilters(const char *csvLine, const Filter *filters, int filterCount, ch
 
     while (value) {
         if (columnIndex < headerCount) {
+            int passFilter = 1; // Assume que o valor passa por todos os filtros
+
             for (int i = 0; i < filterCount; i++) {
                 if (strcmp(headers[columnIndex], filters[i].header) == 0) {
                     switch (filters[i].op) {
                         case '>':
                             if (!(strcmp(value, filters[i].value) > 0)) { // Comparação de string
-                                free(lineCopy);
-                                return 0;
+                                passFilter = 0;
                             }
                             break;
                         case '<':
                             if (!(strcmp(value, filters[i].value) < 0)) { // Comparação de string
-                                free(lineCopy);
-                                return 0;
+                                passFilter = 0;
                             }
                             break;
                         case '=':
                             if (strcmp(value, filters[i].value) != 0) { // Comparação de string
-                                free(lineCopy);
-                                return 0;
+                                passFilter = 0;
                             }
                             break;
-                        // Adicione outros casos de filtro aqui se necessário
                         default:
                             fprintf(stderr, "Invalid comparison operator '%c' for string comparison.\n", filters[i].op);
                             free(lineCopy);
@@ -116,14 +114,21 @@ int applyFilters(const char *csvLine, const Filter *filters, int filterCount, ch
                     break;
                 }
             }
+
+            if (passFilter) {
+                free(lineCopy);
+                return 1; // Retorna 1 se passar por todos os filtros
+            }
+
             value = strtok(NULL, ",");
             columnIndex++;
         } else {
             break;
         }
     }
+
     free(lineCopy);
-    return 1;
+    return 0; // Retorna 0 se não passar por todos os filtros
 }
 
 void processCsv(const char* csv, const char* selectedColumns, const char* rowFilterDefinitions) {
