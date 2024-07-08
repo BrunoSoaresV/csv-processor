@@ -9,12 +9,16 @@
 typedef struct {
     char header[256];
     char op;
-    char value[256]; // Alteração para suportar valor como string
+    char value[256];
 } Filter;
 
 void printSelectedHeaders(const char *selectedColumns, char *headers[], int headerCount) {
     if (strlen(selectedColumns) > 0) {
         char *columnsCopy = strdup(selectedColumns);
+        if (!columnsCopy) {
+            fprintf(stderr, "Erro de alocação de memória\n");
+            return;
+        }
         char *col = strtok(columnsCopy, ",");
         int first = 1;
         while (col) {
@@ -42,6 +46,10 @@ int parseFilters(const char *rowFilterDefinitions, Filter *filters, char *header
     int filterCount = 0;
     if (strlen(rowFilterDefinitions) > 0) {
         char *filtersCopy = strdup(rowFilterDefinitions);
+        if (!filtersCopy) {
+            fprintf(stderr, "Erro de alocação de memória\n");
+            return -1;
+        }
         char *filterLine = strtok(filtersCopy, "\n");
         while (filterLine) {
             char *op = strpbrk(filterLine, "><=!");
@@ -52,9 +60,8 @@ int parseFilters(const char *rowFilterDefinitions, Filter *filters, char *header
                     filters[filterCount].header[opIndex] = '\0';
 
                     filters[filterCount].op = filterLine[opIndex];
-                    strcpy(filters[filterCount].value, filterLine + opIndex + 1); // Copia valor como string
+                    strcpy(filters[filterCount].value, filterLine + opIndex + 1);
 
-                    // Validate header
                     int validHeader = 0;
                     for (int i = 0; i < headerCount; i++) {
                         if (strcmp(filters[filterCount].header, headers[i]) == 0) {
@@ -81,28 +88,31 @@ int parseFilters(const char *rowFilterDefinitions, Filter *filters, char *header
 
 int applyFilters(const char *csvLine, const Filter *filters, int filterCount, char *headers[], int headerCount) {
     char *lineCopy = strdup(csvLine);
+    if (!lineCopy) {
+        fprintf(stderr, "Erro de alocação de memória\n");
+        return 0;
+    }
     char *value = strtok(lineCopy, ",");
     int columnIndex = 0;
+    int passFilter = 1;
 
     while (value) {
         if (columnIndex < headerCount) {
-            int passFilter = 1; // Assume que o valor passa por todos os filtros
-
             for (int i = 0; i < filterCount; i++) {
                 if (strcmp(headers[columnIndex], filters[i].header) == 0) {
                     switch (filters[i].op) {
                         case '>':
-                            if (!(strcmp(value, filters[i].value) > 0)) { // Comparação de string
+                            if (!(strcmp(value, filters[i].value) > 0)) {
                                 passFilter = 0;
                             }
                             break;
                         case '<':
-                            if (!(strcmp(value, filters[i].value) < 0)) { // Comparação de string
+                            if (!(strcmp(value, filters[i].value) < 0)) {
                                 passFilter = 0;
                             }
                             break;
                         case '=':
-                            if (strcmp(value, filters[i].value) != 0) { // Comparação de string
+                            if (strcmp(value, filters[i].value) != 0) {
                                 passFilter = 0;
                             }
                             break;
@@ -115,9 +125,9 @@ int applyFilters(const char *csvLine, const Filter *filters, int filterCount, ch
                 }
             }
 
-            if (passFilter) {
+            if (!passFilter) {
                 free(lineCopy);
-                return 1; // Retorna 1 se passar por todos os filtros
+                return 0;
             }
 
             value = strtok(NULL, ",");
@@ -126,14 +136,16 @@ int applyFilters(const char *csvLine, const Filter *filters, int filterCount, ch
             break;
         }
     }
-
     free(lineCopy);
-    return 0; // Retorna 0 se não passar por todos os filtros
+    return 1;
 }
 
 void processCsv(const char* csv, const char* selectedColumns, const char* rowFilterDefinitions) {
-    // Parse CSV data
     char *csvCopy = strdup(csv);
+    if (!csvCopy) {
+        fprintf(stderr, "Erro de alocação de memória\n");
+        return;
+    }
     char *line = strtok(csvCopy, "\n");
     char *headers[MAX_COLUMNS];
     int headerCount = 0;
@@ -142,21 +154,33 @@ void processCsv(const char* csv, const char* selectedColumns, const char* rowFil
         char *header = strtok(line, ",");
         while (header) {
             headers[headerCount++] = strdup(header);
+            if (!headers[headerCount - 1]) {
+                fprintf(stderr, "Erro de alocação de memória\n");
+                free(csvCopy);
+                return;
+            }
             header = strtok(NULL, ",");
         }
     }
 
-    // Parse filters
     Filter filters[MAX_FILTERS];
     int filterCount = parseFilters(rowFilterDefinitions, filters, headers, headerCount);
 
-    // Print selected headers
+    if (filterCount == -1) {
+        free(csvCopy);
+        return;
+    }
+
     printSelectedHeaders(selectedColumns, headers, headerCount);
 
-    // Process CSV lines
     while ((line = strtok(NULL, "\n"))) {
         if (applyFilters(line, filters, filterCount, headers, headerCount)) {
             char *lineCopy = strdup(line);
+            if (!lineCopy) {
+                fprintf(stderr, "Erro de alocação de memória\n");
+                free(csvCopy);
+                return;
+            }
             char *value = strtok(lineCopy, ",");
             int columnIndex = 0;
             int first = 1;
@@ -183,4 +207,31 @@ void processCsv(const char* csv, const char* selectedColumns, const char* rowFil
         free(headers[i]);
     }
     free(csvCopy);
+}
+
+void processCsvFile(const char csvFilePath[], const char selectedColumns[], const char rowFilterDefinitions[]) {
+    FILE *file = fopen(csvFilePath, "r");
+    if (!file) {
+        fprintf(stderr, "Erro ao abrir o arquivo %s\n", csvFilePath);
+        return;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char *csv = malloc(fileSize + 1);
+    if (!csv) {
+        fclose(file);
+        fprintf(stderr, "Erro de alocação de memória\n");
+        return;
+    }
+
+    fread(csv, 1, fileSize, file);
+    csv[fileSize] = '\0';
+    fclose(file);
+
+    processCsv(csv, selectedColumns, rowFilterDefinitions);
+
+    free(csv);
 }
