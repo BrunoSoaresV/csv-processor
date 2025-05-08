@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "libcsv.h"
+#include <ctype.h>
 
 // Helper function to split a string by a delimiter
 char **splitString(const char *str, const char *delimiter, int *count) {
@@ -28,40 +29,45 @@ char **splitString(const char *str, const char *delimiter, int *count) {
 // Helper function to check if a row matches the filters
 int rowMatchesFilters(char **row, char **headers, int numCols, char **filters, int numFilters) {
     for (int i = 0; i < numFilters; i++) {
-        char *filter = strdup(filters[i]);
-        char *header = strtok(filter, "=<>");
-        char *value = filter + strlen(header) + 1;  // Skip the comparator
-        char comparator = filters[i][strlen(header)];
-
+        // Duplicate filter string for parsing
+        char *fcopy = strdup(filters[i]);
+        // Find operator position
+        int pos = 0;
+        while (fcopy[pos] && !(strchr("<>=!", fcopy[pos]))) pos++;
+        if (!fcopy[pos]) { free(fcopy); return 0; }
+        int opLen = (fcopy[pos + 1] == '=') ? 2 : 1;
+        // Extract header, operator, value
+        char *header = strndup(fcopy, pos);
+        char operator[3] = {0}; strncpy(operator, fcopy + pos, opLen);
+        char *value = fcopy + pos + opLen;
+        // Locate column index
         int colIndex = -1;
         for (int j = 0; j < numCols; j++) {
-            if (strcmp(headers[j], header) == 0) {
-                colIndex = j;
-                break;
-            }
+            if (strcmp(headers[j], header) == 0) { colIndex = j; break; }
         }
-
-        if (colIndex == -1) {
-            free(filter);
-            return 0;  // Header not found
+        free(header);
+        if (colIndex < 0) { free(fcopy); return 0; }
+        // Determine numeric comparison
+        int numeric = 1;
+        for (char *p = row[colIndex]; *p; p++) if (!isdigit(*p) && *p!='.' && *p!='-') numeric = 0;
+        for (char *p = value; *p; p++) if (!isdigit(*p) && *p!='.' && *p!='-') numeric = 0;
+        int cmp;
+        if (numeric) {
+            double a = atof(row[colIndex]);
+            double b = atof(value);
+            cmp = (a < b) ? -1 : (a > b) ? 1 : 0;
+        } else {
+            cmp = strcmp(row[colIndex], value);
         }
-
-        int cmp = strcmp(row[colIndex], value);
-        free(filter);
-
-        switch (comparator) {
-            case '=':
-                if (cmp != 0) return 0;
-                break;
-            case '>':
-                if (cmp <= 0) return 0;
-                break;
-            case '<':
-                if (cmp >= 0) return 0;
-                break;
-            default:
-                return 0;
-        }
+        free(fcopy);
+        // Evaluate comparison
+        if (strcmp(operator, "=") == 0) { if (cmp != 0) return 0; }
+        else if (strcmp(operator, "!=") == 0) { if (cmp == 0) return 0; }
+        else if (strcmp(operator, ">=") == 0) { if (cmp < 0) return 0; }
+        else if (strcmp(operator, "<=") == 0) { if (cmp > 0) return 0; }
+        else if (strcmp(operator, ">") == 0) { if (cmp <= 0) return 0; }
+        else if (strcmp(operator, "<") == 0) { if (cmp >= 0) return 0; }
+        else return 0;
     }
     return 1;
 }
